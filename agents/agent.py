@@ -52,14 +52,17 @@ AVAILABLE TOOLS (calls to tools must use the MCP names)
 
 
 RULES (tool use, ambiguity, and failures)
-1. For any query that requires numbers or data from the dataset you MUST call the appropriate tool.
+1. Always call the validate_data_tool first to make sure the data has no missing values or negatives. Once the 
+validate_data_tool results in "ok":"True" alone move on to call the appropriate tool to process the 
+user query. If the data has negative values or missing values or null values, abort and return the error message to the user.
+2. For any query that requires numbers or data from the dataset you MUST call the appropriate tool.
    - Aggregation => call calculate_total_tool.
    - Top-N      => call get_top_n_tool.
    - Filtering  => call filter_by_value_tool.
-2. If you do not know which column to use, first call validate_data_tool to learn column names.
-3. If a tool returns an error (dataset missing, column missing, file unreadable), include that error in the structured output's "data_issues" list.
-4. If the user's query is ambiguous, ask exactly one clarifying question (and do not call tools).
-5. Do not call any tool unless the query requires it.
+3. If you do not know which column to use, first call validate_data_tool to learn column names.
+4. If a tool returns an error (dataset missing, column missing, file unreadable), include that error in the structured output's "data_issues" list.
+5. If the user's query is ambiguous, ask exactly one clarifying question (and do not call tools).
+6. Do not call any tool unless the query requires it.
 
 OUTPUT FORMAT (human + machine)
 After you run tools and compute results, produce **two parts** in this exact order:
@@ -109,104 +112,196 @@ Human summary: Total revenue for the dataset is 45,234.75.
 """
 
 class ConversationSession:
+    """
+    Simple conversation session wrapper around ClaudeSDKClient.
+
+    Responsibilities:
+      - create/connect/disconnect the client
+      - accept a small set of CLI commands (exit, interrupt, new)
+      - display incoming messages safely (handles missing attributes)
+    """
     def __init__(self, options: Optional[ClaudeAgentOptions] = None):
-        # store options for later use; do NOT create the client at import time
+        """
+        Initialize the ConversationSession.
+
+        Parameters
+        ----------
+        options : Optional[ClaudeAgentOptions]
+            Options used to construct the ClaudeSDKClient. Must be provided
+            before calling connect().
+        """
         self.options = options
-        # correct type annotation with assignment (do NOT try to assign Optional[...] as a value)
         self.client: Optional[ClaudeSDKClient] = None
         self.turn_out = 0
 
     async def connect(self):
-        # create client using stored options (must be set before calling connect)
+        """
+        Create the ClaudeSDKClient and connect.
+
+        Raises
+        ------
+        RuntimeError
+            If self.options is None.
+        Exception
+            Any exception raised by the underlying client.connect() is propagated.
+        """
         if self.options is None:
-            raise RuntimeError("ConversationSession.options is None — provide ClaudeAgentOptions before connect()")
+            raise RuntimeError(
+                "ConversationSession.options is None — provide ClaudeAgentOptions before connect()"
+            )
         self.client = ClaudeSDKClient(options=self.options)
         await self.client.connect()
 
     async def disconnect(self):
+        """
+        Disconnect the client and clear the reference. Safe to call multiple times.
+        Any exception during disconnect is caught and ignored to ensure graceful shutdown.
+        """
         if self.client:
-            await self.client.disconnect()
-            self.client = None
+            try:
+                await self.client.disconnect()
+            except Exception:
+                # swallow exceptions during disconnect to avoid crashing cleanup
+                # (the user-facing CLI will already be shutting down)
+                pass
+            finally:
+                self.client = None
 
     def display_message(self, msg):
-        """Display message content in a clean format."""
+        """
+        Display message content in a compact human-readable form.
 
-        if isinstance(msg, UserMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    print(f"User: {block.text}")
-                elif isinstance(block, ToolResultBlock):
-                    print(
-                        f"Tool Result: {block.content[:100] if block.content else 'None'}..."
-                    )
-        elif isinstance(msg, AssistantMessage):
-            # for block in msg.content:
-            #     if isinstance(block, TextBlock):
-            #         print(f"Claude: {block.text}")
-            #     elif isinstance(block, ToolUseBlock):
-            #         print(f"Using tool: {block.name}")
-            #         # Show tool inputs for calculator
-            #         if block.input:
-            #             print(f"  Input: {block.input}")
-            for block in getattr(msg, "content", []) or []:
-                if isinstance(block, TextBlock):
-                    # streaming behavior in start() prints without newline; here we print a line
-                    print(f"Claude: {block.text}")
-                elif isinstance(block, ToolUseBlock):
-                    name = getattr(block, "name", getattr(block, "id", "<unknown>"))
-                    print(f"[Tool use] {name}")
-                    if getattr(block, "input", None):
-                        print("  Input:", block.input)
-                elif isinstance(block, ToolResultBlock):
-                    print("DEBUG TOOL BLOCK RECEIVED:", type(block), repr(block)[:500])
-                    
-                    content = block.content
-                    
-                    print("DEBUG TOOL CONTENT TYPE:", type(content))
-                    print("DEBUG TOOL CONTENT REPR (first 1000 chars):")
+        This function is defensive: it tolerates partial or unexpected SDK objects.
+        """
+        # ---------------------------
+        # Handle User messages
+        # ---------------------------
+        
+        try:
+            if isinstance(msg, UserMessage):
+                for block in msg.content:
+                    try:
+                        if isinstance(block, TextBlock):
+                            print(f"User: {block.text}")
+                        elif isinstance(block, ToolResultBlock):
+                            content = block.content
+                            if isinstance(content, (dict, list)):
+                                preview = json.dumps(content)[:200]
+                            else:
+                                preview = str(content)[:200]
+                            print(f"Tool Result: {preview}...")
+                    except Exception as e:
+                        print(f"[Error rendering user block: {e}]")
+                return
+        except Exception as e:
+            print(f"[Error handling UserMessage: {e}]")
 
-                    if isinstance(content, (dict, list)):
-                        print("[Tool result]:")
-                        print(json.dumps(content, indent=2, ensure_ascii=False))
-                    else:
-                        print(f"[Tool result]: {str(content)[:500]}")
+        # ---------------------------
+        # Handle Assistant messages
+        # ---------------------------
+        try:
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    try:
+                        if isinstance(block, TextBlock):
+                            print(f"Claude: {block.text}")
+                        elif isinstance(block, ToolUseBlock):
+                            name = getattr(block, "name", getattr(block, "id", "<unknown>"))
+                            print(f"[Tool use] {name}")
+                            if getattr(block, "input", None):
+                                print("  Input:", block.input)
+                        elif isinstance(block, ToolResultBlock):
+                            content = block.content
+                            if isinstance(content, (dict, list)):
+                                print("[Tool result]:")
+                                print(json.dumps(content, indent=2, ensure_ascii=False))
+                            else:
+                                print(f"[Tool result]: {str(content)[:1000]}")
+                        else:
+                            print(f"[Unknown block type: {type(block).__name__}]")
+                    except Exception as e:
+                        print(f"[Error rendering assistant block: {e}]")
+                return
+        except Exception as e:
+            print(f"[Error handling AssistantMessage: {e}]")
 
 
     async def start(self):
+        """
+        Run the interactive conversation loop.
+
+        Commands:
+        - 'exit'      → quit session
+        - 'interrupt' → stop current task
+        - 'new'       → start a new session
+        The method ensures the client is connected before sending queries and
+        always attempts to disconnect in the finally block.
+        """
         await self.connect()
         print("You're starting a conversation with Claude Data Analysis Agent")
         print("Commands: type 'exit' to quit, 'interrupt' to stop current task, 'new' for new session.")
 
         try:
             while True:
-                query = input("You: ").strip()
+                try:
+                    query = input("You: ").strip()
+                except (KeyboardInterrupt, EOFError):
+                    print("\nExiting session.")
+                    break
                 if not query:
                     continue
+
                 if query.lower() == 'exit':
                     break
                 elif query.lower() == 'interrupt':
-                    await self.client.interrupt()
-                    print("Task interrupted!")
+                    if self.client:
+                        try:
+                            await self.client.interrupt()
+                            print("Task interrupted!")
+                        except Exception as e:
+                            print(f"Failed to interrupt task: {e}")
+                    else:
+                        print("No active client to interrupt.")
                     continue
                 elif query.lower() == 'new':
-                    await self.client.disconnect()
-                    await self.client.connect()
-                    print("Started a new session.")
+                    if self.client:
+                        await self.disconnect()
+                    try:
+                        await self.connect()
+                        print("Started a new session.")
+                    except Exception as e:
+                        print(f"Failed to start new session: {e}")
                     continue
 
-                await self.client.query(query)
+                # --- normal message flow ---
+                if not self.client:
+                    try:
+                        await self.connect()
+                    except Exception as e:
+                        print(f"Unable to connect client: {e}")
+                        continue
 
-                async for message in self.client.receive_response():
-                    self.display_message(message)
-                print()  # newline after response
-
-            await self.client.disconnect()
+                try:
+                    await self.client.query(query)
+                    async for message in self.client.receive_response():
+                        self.display_message(message)
+                    print()  # newline after response
+                except Exception as e:
+                    print(f"Error during query or response: {e}")
+                    # disconnect to reset state
+                    await self.disconnect()
+                    continue
+                
             print("Conversation ended.")
         finally:
             await self.disconnect()
 
 async def main():
-    # Build the MCP server here so main.py does not have to know about tools internals
+    """
+    Entry point: build the MCP server and start the conversation session.
+    Kept minimal so main.py doesn't need to know tool internals.
+    """
+
     from claude_agent_sdk import create_sdk_mcp_server
 
     dataAnalysis = create_sdk_mcp_server(

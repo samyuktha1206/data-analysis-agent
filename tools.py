@@ -27,12 +27,11 @@ _df: Optional[pd.DataFrame] = None
 def get_df() -> pd.DataFrame:
     """Lazy-load and cache the dataset. Raises FileNotFoundError if DATA_PATH missing."""
     global _df
-    if _df is not None:
-        return _df
-    print(os.environ.get("DATA_PATH"))
+    # if _df is not None:
+    #     return _df
     data_path = os.environ.get("DATA_PATH", "data/sample_data.csv")
     abs_path = os.path.abspath(data_path)
-    print(f"DEBUG get_df: using DATA_PATH={data_path} abs={abs_path} exists={os.path.exists(data_path)}")
+    # print(f"DEBUG get_df: using DATA_PATH={data_path} abs={abs_path} exists={os.path.exists(data_path)}")
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Data file not found at {abs_path}")
     _df = pd.read_csv(data_path)
