@@ -21,12 +21,23 @@ ALLOWED_TOOLS = [
 ]
 
 SYSTEM_PROMPT = """
-You are a Data Analysis Agent that analyzes structured datasets (CSV/JSON)
-using the provided tools.
+You are a Data Analysis Agent that analyzes structured datasets (CSV/JSON) with the following data tools 
+that you have access to:
+
+- validate_data_tool
+- calculate_total_tool
+- get_top_n_tool
+- filter_by_value_tool
+
+Dataset schema (read-only):
+- products: string (product name)
+- revenue: float (sales amount)
 
 Rules:
-1. Always call an appropriate tool for data operations.
-2. After using a tool, output a structured summary JSON.
+- When the user asks to filter by a product name, call filter_by_value_tool with {"column": "products", "value": <name>}.
+- Always use 'products' (plural) as the column name for product names.
+- The dataset path is available via DATA_PATH environment variable and already loaded.
+- After calling tools, respond with structured reasoning and one actionable recommendation.
 """
 
 class ConversationSession:
@@ -85,7 +96,7 @@ class ConversationSession:
                     
                     print("DEBUG TOOL CONTENT TYPE:", type(content))
                     print("DEBUG TOOL CONTENT REPR (first 1000 chars):")
-                    
+
                     if isinstance(content, (dict, list)):
                         print("[Tool result]:")
                         print(json.dumps(content, indent=2, ensure_ascii=False))

@@ -12,6 +12,7 @@ Each tool returns JSON-serializable dicts and avoids raising unhandled exception
 from typing import Any, Dict, Optional
 import os
 import pandas as pd
+import json
 
 # SDK helpers
 from claude_agent_sdk import tool, create_sdk_mcp_server
@@ -54,16 +55,16 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
     try:
         df = get_df()
     except Exception as e:
-        return {"ok": False, "error": f"Could not load dataset: {e}"}
+        return {"content": [{"type": "text", "text": f"Could not load dataset: {e}"}]}
 
     required = {"product", "revenue"}
     missing = required - set(df.columns)
 
     if missing:
-        return {"ok": False, "status": "insufficient", "message": f"Missing columns: {', '.join(sorted(missing))}"}
+        return {"content":[{"type": "text", "text":  "insufficient", "message": f"Missing columns: {', '.join(sorted(missing))}"}]}
 
     if len(df) == 0:
-        return {"ok": False, "status": "insufficient", "message": "No rows in dataset."}
+        return {"content":[{"type": "text", "text":  "insufficient", "message": "No rows in dataset."}]}
 
     issues: list[str] = []
     if df.isnull().any().any():
@@ -73,7 +74,7 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
         if negs:
             issues.append(f"{negs} rows have negative revenue.")
 
-    return {"ok": True, "status": "valid", "issues": issues, "rows": int(len(df))}
+    return {"content":[{"type": "text", "text": f"issues: {issues}, rows:{int(len(df))}" }]}
 
 
 @tool(
@@ -135,33 +136,54 @@ async def get_top_n_tool(args: Dict[str, Any]) -> ToolResult:
     #         {"type": "content", "content": {rows}}
     #     ]
     # }
-    return rows
+    return {
+        "content": [{
+            "type": "text",
+            "text": f"Found {len(rows)} rows:\n{json.dumps(rows, indent=2)}"
+        }]
+    }
 
 
 @tool(
     name="filter_by_value_tool",
-    description="Filter rows by column == value. Input: {'column': str, 'value': str}",
+    description="Filter columns by row == value. Input: {'column': str, 'value': str}",
     input_schema={"column": str, "value": str}
 )
 async def filter_by_value_tool(args: Dict[str, Any]) -> ToolResult:
     try:
-        df = get_df()
+            print("I've entered the filter by value tool")
+            try:
+                df = get_df()
+            except Exception as e:
+                return {"type": "text", "text": f"Could not load dataset: {e}"}
+
+            column = args.get("column","products")
+            print(column)
+            value = args.get("value")
+            print(value)
+
+            if not column or value is None:
+                return { "content":[{"type": "text", "text": "Both 'column' and 'value' are required."}]}
+            if column not in df.columns:
+                return {"content": [{"type": "text", "text": f"Column '{column}' not found. Available: {', '.join(df.columns)}"}]}
+
+            filtered = df[df[column].astype(str).str.lower() == str(value).lower()]
+            print("done filterinf")
+            rows = filtered.to_dict(orient="records")
+            print("got the rows")
+            total = float(pd.to_numeric(filtered["revenue"], errors="coerce").fillna(0).sum()) if "revenue" in filtered.columns and len(filtered) > 0 else 0.0
+            print(total)
+
+            #return {"ok": True, "result": {"count": len(rows), "total": total, "rows": rows}}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"total: {total}"
+                }]
+            }
     except Exception as e:
-        return {"ok": False, "error": f"Could not load dataset: {e}"}
-
-    column = args.get("column")
-    value = args.get("value")
-
-    if not column or value is None:
-        return {"ok": False, "error": "Both 'column' and 'value' are required."}
-    if column not in df.columns:
-        return {"ok": False, "error": f"Column '{column}' not found. Available: {', '.join(df.columns)}"}
-
-    filtered = df[df[column].astype(str).str.lower() == str(value).lower()]
-    rows = filtered.to_dict(orient="records")
-    total = float(pd.to_numeric(filtered["revenue"], errors="coerce").fillna(0).sum()) if "revenue" in filtered.columns and len(filtered) > 0 else 0.0
-
-    return {"ok": True, "result": {"count": len(rows), "total": total, "rows": rows}}
+        print("DEBUG: filter_by_value_tool exception:", repr(e))
+        return {"content":[{"type":"text","text": json.dumps({"error": str(e)})}]}
 
 
 # ---------------------
