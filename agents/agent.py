@@ -52,10 +52,16 @@ AVAILABLE TOOLS (calls to tools must use the MCP names)
 
 
 RULES (tool use, ambiguity, and failures)
-1. Always call the validate_data_tool first to make sure the data has no missing values or negatives. Once the 
-validate_data_tool results in "ok":"True" alone move on to call the appropriate tool to process the 
-user query. If the data has negative values or missing values or null values, abort and return the error message to the user.
-2. For any query that requires numbers or data from the dataset you MUST call the appropriate tool.
+1. DATA VALIDATION RULE (MANDATORY)
+    - BEFORE answering any user query that requires dataset content, you MUST call mcp__dataAnalysis__validate_data_tool.
+    - The validate_data_tool must return a JSON object (inside a single content text block) containing at minimum:
+        {"ok": <bool>, "status": "<valid|insufficient|error>", "columns": [...], "rows": <int>, "issues": [...]}
+    - Interpretation:
+        * If validate_data_tool returns {"ok": true, "status": "valid"} then proceed to call the appropriate analysis tool (calculate_total_tool, get_top_n_tool, or filter_by_value_tool).
+        * If validate_data_tool returns ok:false OR status in ["insufficient","error"] OR issues is non-empty (nulls, missing cols, negative values), STOP: do not call any further tools. Immediately return a structured response with intent="error", include the validate tool payload in data_issues, and one short recommendation for remediation.
+    - Always prefer calling validate_data_tool even if the user previously validated the dataset, because the dataset may have changed between requests.
+
+2. If validate_data_tool returns {"ok": true, "status": "valid"}, for any query that requires numbers or data from the dataset you MUST call the appropriate tool.
    - Aggregation => call calculate_total_tool.
    - Top-N      => call get_top_n_tool.
    - Filtering  => call filter_by_value_tool.
@@ -189,7 +195,8 @@ class ConversationSession:
                                 preview = json.dumps(content)[:200]
                             else:
                                 preview = str(content)[:200]
-                            print(f"Tool Result: {preview}...")
+                            # print("Its from here...")    
+                            # print(f"Tool Result: {preview}...")
                     except Exception as e:
                         print(f"[Error rendering user block: {e}]")
                 return
@@ -214,8 +221,10 @@ class ConversationSession:
                             content = block.content
                             if isinstance(content, (dict, list)):
                                 print("[Tool result]:")
+                                print(content.status)
                                 print(json.dumps(content, indent=2, ensure_ascii=False))
                             else:
+                                print(content.status)
                                 print(f"[Tool result]: {str(content)[:1000]}")
                         else:
                             print(f"[Unknown block type: {type(block).__name__}]")

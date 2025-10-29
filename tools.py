@@ -51,6 +51,22 @@ def get_df() -> pd.DataFrame:
     input_schema={}
 )
 async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
+    """
+    Returns a JSON object inside content text block with:
+    {
+      ok: bool,
+      status: "valid"|"insufficient"|"error",
+      columns: [...],
+      rows: n,
+      issues: [...],
+      missing_summary: {
+         "<col>": {"count": int, "examples": [{"index": i, "products": "name", "value": "<raw>"} ...]}
+      },
+      negative_revenue: [{"index": i, "products": "name", "revenue": -123.0}, ...]
+    }
+    """
+    MAX_EXAMPLES = 5
+
     try:
         df = get_df()
     except Exception as e:
@@ -73,7 +89,9 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
                 {"type": "text", "text": json.dumps({
                     "ok": False,
                     "status": "insufficient",
-                    "error": f"Missing columns: {', '.join(sorted(missing))}"
+                    "error": f"Missing columns: {', '.join(sorted(missing))}",
+                    "columns": df.columns.tolist(),
+                    "rows": len(df),
                 })}
             ]
         }
@@ -89,21 +107,94 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
             ]
         }
     
-    issues: list[str] = []
-    if df.isnull().any().any():
-        issues.append("Dataset contains missing values.")
-    if "revenue" in df.columns:
-        negs = (pd.to_numeric(df["revenue"], errors="coerce") < 0).sum()
-        if negs:
-            issues.append(f"{negs} rows have negative revenue.")
+    # issues: list[str] = []
 
-    return {"content":[{"type":"text","text": json.dumps({
-    "ok": True,
-    "status": "valid",
-    "columns": df.columns.tolist(),
-    "rows": len(df),
-    "issues": issues
-})}]}
+    # Detect NaN, None, or empty/whitespace-only cells
+    # empty_mask = df.isnull() | df.astype(str).apply(lambda x: x.str.strip() == "")
+    # if empty_mask.any().any():
+    #     num_empty = int(empty_mask.sum().sum())
+    #     issues.append(f"Dataset contains {num_empty} missing values.")
+
+    # # Detect negative revenue values
+    # if "revenue" in df.columns:
+    #     negs = (pd.to_numeric(df["revenue"], errors="coerce") < 0).sum()
+    #     if negs:
+    #         issues.append(f"{negs} rows have negative revenue.")
+    
+    # ok = len(issues) == 0
+    # status = "valid" if ok else "insufficient"
+
+    # return {
+    #     "content": [
+    #         {"type": "text", "text": json.dumps({
+    #             "ok": ok,
+    #             "status": status,
+    #             "columns": df.columns.tolist(),
+    #             "rows": len(df),
+    #             "issues": issues
+    #         })}
+    #     ]
+    # }
+    empty_mask = df.isnull() | df.astype(str).apply(lambda col: col.str.strip() == "")
+
+    missing_summary = {}
+    for col in df.columns:
+        col_mask = empty_mask[col]
+        count = int(col_mask.sum())
+        if count > 0:
+            # Gather up to MAX_EXAMPLES example rows for this column
+            examples = []
+            # Use .loc to keep original index; convert index to int if possible
+            for i, val in df.loc[col_mask, [col, "products"]].head(MAX_EXAMPLES).iterrows():
+                examples.append({
+                    "index": int(i) if isinstance(i, (int,)) or (str(i).isdigit()) else str(i),
+                    "products": (val.get("products") if "products" in df.columns else None),
+                    "value": None if pd.isna(val[col]) else str(val[col])
+                })
+            missing_summary[col] = {"count": count, "examples": examples}
+
+    # Negative revenue detection
+    negative_revenue = []
+    if "revenue" in df.columns:
+        # coerce to numeric, keep original index and products
+        rev_numeric = pd.to_numeric(df["revenue"], errors="coerce")
+        neg_mask = rev_numeric < 0
+        neg_count = int(neg_mask.sum())
+        if neg_count > 0:
+            # collect examples (all or up to MAX_EXAMPLES)
+            for i, row in df.loc[neg_mask, ["products", "revenue"]].head(MAX_EXAMPLES).iterrows():
+                # coerce revenue to float safely
+                try:
+                    rev_val = float(row["revenue"])
+                except Exception:
+                    rev_val = None
+                negative_revenue.append({
+                    "index": int(i) if isinstance(i, (int,)) or (str(i).isdigit()) else str(i),
+                    "products": row.get("products"),
+                    "revenue": rev_val
+                })
+
+    issues = []
+    if len(missing_summary) > 0:
+        issues.append(f"Missing values present in columns: {', '.join(missing_summary.keys())}")
+    if len(negative_revenue) > 0:
+        issues.append(f"{len(negative_revenue)} rows have negative revenue (examples included)")
+
+    ok = (len(issues) == 0)
+    status = "valid" if ok else "insufficient"
+
+    payload = {
+        "ok": ok,
+        "status": status,
+        "columns": df.columns.tolist(),
+        "rows": int(len(df)),
+        "issues": issues,
+        "missing_summary": missing_summary,
+        "negative_revenue_examples": negative_revenue
+    }
+
+    return {"content": [{"type": "text", "text": json.dumps(payload, indent=2, default=str)}]}
+
 
 
 @tool(
@@ -115,7 +206,6 @@ async def calculate_total_tool(args: Dict[str, Any]) -> ToolResult:
     print("DEBUG: calculate_total_tool called with", args)
     try:
         df = get_df()
-        print(df)
     except Exception as e:
         return {
             "content": [
@@ -128,7 +218,6 @@ async def calculate_total_tool(args: Dict[str, Any]) -> ToolResult:
         }
 
     column = args.get("column", "revenue")
-    print("DEBUG: column =", column)
 
     if column not in df.columns:
         return {
@@ -153,8 +242,6 @@ async def calculate_total_tool(args: Dict[str, Any]) -> ToolResult:
                 })}
             ]
         }
-
-    print("DEBUG: total =", total)
     
     result = {
         "ok": True,
@@ -240,8 +327,6 @@ async def get_top_n_tool(args: Dict[str, Any]) -> ToolResult:
             ]
         }
 
-    # for row in rows:
-    #     print(row)
     # --- Prepare clean JSON result ---
     result = {
         "ok": True,
@@ -265,12 +350,6 @@ async def get_top_n_tool(args: Dict[str, Any]) -> ToolResult:
         ]
     }
 
-    # return {
-    #     "content": [{
-    #         "type": "text",
-    #         "text": f"Found {len(rows)} rows:\n{json.dumps(rows, indent=2)}"
-    #     }]
-    # }
 
 
 @tool(
