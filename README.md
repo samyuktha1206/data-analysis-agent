@@ -144,7 +144,7 @@ state/one-shot/agent_state_<timestamp>.json — stores query, result, insights, 
 | Empty rows      | Explains insufficiency clearly   |
 
 ## 📈 Future Improvements
-● Memory: Remember insights across sessions
+● Memory: Remember insights across sessions\
 ● Query suggestions: Suggest relevant follow-up questions
 
 ## 👩‍💻 Author
