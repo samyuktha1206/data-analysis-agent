@@ -110,34 +110,7 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
             ]
         }
     
-    # issues: list[str] = []
-
-    # Detect NaN, None, or empty/whitespace-only cells
-    # empty_mask = df.isnull() | df.astype(str).apply(lambda x: x.str.strip() == "")
-    # if empty_mask.any().any():
-    #     num_empty = int(empty_mask.sum().sum())
-    #     issues.append(f"Dataset contains {num_empty} missing values.")
-
-    # # Detect negative revenue values
-    # if "revenue" in df.columns:
-    #     negs = (pd.to_numeric(df["revenue"], errors="coerce") < 0).sum()
-    #     if negs:
-    #         issues.append(f"{negs} rows have negative revenue.")
-    
-    # ok = len(issues) == 0
-    # status = "valid" if ok else "insufficient"
-
-    # return {
-    #     "content": [
-    #         {"type": "text", "text": json.dumps({
-    #             "ok": ok,
-    #             "status": status,
-    #             "columns": df.columns.tolist(),
-    #             "rows": len(df),
-    #             "issues": issues
-    #         })}
-    #     ]
-    # }
+   
     empty_mask = df.isnull() | df.astype(str).apply(lambda col: col.str.strip() == "")
 
     missing_summary = {}

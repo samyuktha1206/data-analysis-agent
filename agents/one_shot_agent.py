@@ -104,16 +104,6 @@ def save_state(state: AgentState, path: str = DEFAULT_STATE_PATH) -> None:
                 os.remove(tmp_path)
         except Exception:
             pass
-# def save_state(state: AgentState, path: str = DEFAULT_STATE_PATH) -> None:
-#     try:
-#         import datetime
-
-#         state.timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-#     except Exception:
-#         state.timestamp = None
-#     with open(path, "w", encoding="utf-8") as f:
-#         json.dump(state.to_dict(), f, indent=2, default=str)
-
         
 # ---------------------------
 # Agent config / prompt
@@ -352,11 +342,6 @@ async def main() -> None:
     try:
         import datetime, pathlib
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        # outdir = pathlib.Path("state/one-shot")
-        # outdir.mkdir(parents=True, exist_ok=True)
-        # filename = outdir / f"agent_state_{ts}.json"
-        # save_state(state, path=str(filename))   # uses your existing save_state helper
-        # print(f"[Saved state] to {filename}", flush=True)
 
         outdir = pathlib.Path("state/one-shot")
         outdir.mkdir(parents=True, exist_ok=True)
