@@ -63,14 +63,14 @@ It includes two working modes:\
 
 ## ⚙️ Installation & Setup
 1️⃣ **Clone and install**
-git clone <your-repo-url>
-cd claude-data-analysis-agent
-pip install -r requirements.txt
+git clone <your-repo-url>\
+cd claude-data-analysis-agent\
+pip install -r requirements.txt\
 
 2️⃣ **Configure environment**
 Create a .env file at the root:
 
-ANTHROPIC_API_KEY=your_claude_api_key
+ANTHROPIC_API_KEY=your_claude_api_key\
 DATA_PATH=data/sample_data.csv
 
 **3️⃣ Run the agent**
