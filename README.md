@@ -99,12 +99,12 @@ Total revenue for the dataset is 45,234.75.
 
 **Structured output:**
 
-{
-  "intent": "aggregation",
-  "supporting_data": {"column": "revenue", "total": 45234.75},
-  "recommendation": "Increase promotion on the top-selling product to grow revenue by focusing on repeat buyers.",
-  "reasoning": "Used calculate_total_tool on 'revenue' to sum all sales.",
-  "data_issues": []
+{\
+  "intent": "aggregation",\
+  "supporting_data": {"column": "revenue", "total": 45234.75},\
+  "recommendation": "Increase promotion on the top-selling product to grow revenue by focusing on repeat buyers.",\
+  "reasoning": "Used calculate_total_tool on 'revenue' to sum all sales.",\
+  "data_issues": []\
 }
 
 ## 🧰 Dependencies
