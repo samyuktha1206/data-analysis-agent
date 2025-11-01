@@ -61,26 +61,26 @@ It includes two working modes:\
 └── README.md
 
 
-## ⚙️ Installation & Setup
-1️⃣ **Clone and install**
+## ⚙️ Installation & Setup\
+1️⃣ **Clone and install**\
 git clone <your-repo-url>\
 cd claude-data-analysis-agent\
-pip install -r requirements.txt\
+pip install -r requirements.txt
 
-2️⃣ **Configure environment**
+2️⃣ **Configure environment**\
 Create a .env file at the root:
 
 ANTHROPIC_API_KEY=your_claude_api_key\
 DATA_PATH=data/sample_data.csv
 
-**3️⃣ Run the agent**
-**🗨️ Interactive Mode**
-python main.py
+**3️⃣ Run the agent**\
+**🗨️ Interactive Mode**\
+python main.py\
 Resume previous sessions automatically via stored session_id.
 
 ## ⚡ One-Shot Mode
-python main.py "What's the total revenue?"
-Each run saves a JSON record under state/one-shot/:
+python main.py "What's the total revenue?"\
+Each run saves a JSON record under state/one-shot/:\
 state/one-shot/agent_state_20251101T093500Z.json
 
 
@@ -109,10 +109,10 @@ Total revenue for the dataset is 45,234.75.
 
 ## 🧰 Dependencies
 
-pandas>=1.5
-python-dotenv>=1.0
-jsonschema>=4.0
-claude-agent-sdk>=0.1
+pandas>=1.5\
+python-dotenv>=1.0\
+jsonschema>=4.0\
+claude-agent-sdk>=0.1\
 typing-extensions>4.0
 
 ## 🗂️ Persistent State
@@ -126,11 +126,11 @@ state/one-shot/agent_state_<timestamp>.json — stores query, result, insights, 
 **Example one-shot state:**
 
 {
-  "query": "Show top 3 products by revenue",
-  "intent": "top_n",
-  "results": { "column": "revenue", "n": 3, "rows": [...] },
-  "insights": "Claude recommends promoting these top performers.",
-  "data_issues": [],
+  "query": "Show top 3 products by revenue",\
+  "intent": "top_n",\
+  "results": { "column": "revenue", "n": 3, "rows": [...] },\
+  "insights": "Claude recommends promoting these top performers.",\
+  "data_issues": [],\
   "timestamp": "2025-11-01T09:35:00Z"
 }
 
