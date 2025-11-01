@@ -1,4 +1,5 @@
 import os
+import pathlib
 import json
 import asyncio
 from typing import Optional
@@ -126,7 +127,7 @@ class ConversationSession:
       - accept a small set of CLI commands (exit, interrupt, new)
       - display incoming messages safely (handles missing attributes)
     """
-    def __init__(self, options: Optional[ClaudeAgentOptions] = None):
+    def __init__(self, options: Optional[ClaudeAgentOptions] = None, session_id_path: str = "state/interactive/session_id.txt"):
         """
         Initialize the ConversationSession.
 
@@ -139,6 +140,14 @@ class ConversationSession:
         self.options = options
         self.client: Optional[ClaudeSDKClient] = None
         self.turn_out = 0
+        self.session_id: Optional[str] = None
+        self.session_id_path = session_id_path
+
+        # ensure path folder exists so saving won't fail later
+        try:
+            pathlib.Path(self.session_id_path).parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
 
     async def connect(self):
         """
@@ -174,6 +183,7 @@ class ConversationSession:
                 self.client = None
 
     def display_message(self, msg):
+
         """
         Display message content in a compact human-readable form.
 
@@ -233,6 +243,29 @@ class ConversationSession:
                 return
         except Exception as e:
             print(f"[Error handling AssistantMessage: {e}]")
+    
+    def _maybe_handle_init(self, msg) -> None:
+        """
+        Capture SDK 'init' messages that contain session_id.
+        Some message objects include a .subtype == 'init' and .data mapping.
+        """
+        try:
+            subtype = getattr(msg, "subtype", None)
+            data = getattr(msg, "data", None) or {}
+            if subtype == "init" and isinstance(data, dict):
+                sid = data.get("session_id") or data.get("sessionId") or data.get("id")
+                if sid:
+                    # persist only once
+                    if sid != self.session_id:
+                        self.session_id = sid
+                        try:
+                            with open(self.session_id_path, "w", encoding="utf-8") as f:
+                                f.write(str(sid))
+                            print(f"[Session started] session_id saved -> {self.session_id_path}", flush=True)
+                        except Exception as e:
+                            print(f"[Warning] failed to save session_id: {e}", flush=True)
+        except Exception:
+            pass
 
 
     async def start(self):
@@ -293,6 +326,12 @@ class ConversationSession:
                 try:
                     await self.client.query(query)
                     async for message in self.client.receive_response():
+                        # capture session start
+                        try:
+                            self._maybe_handle_init(message)
+                        except Exception:
+                            pass
+        
                         self.display_message(message)
                     print()  # newline after response
                 except Exception as e:
@@ -304,6 +343,7 @@ class ConversationSession:
             print("Conversation ended.")
         finally:
             await self.disconnect()
+
 
 async def main():
     """
@@ -323,12 +363,26 @@ async def main():
             filter_by_value_tool,
         ],
     )
+
+    session_id_file = "state/interactive/session_id.txt"
+    resume_session_id = None
+    try:
+        if os.path.exists(session_id_file):
+            with open(session_id_file, "r", encoding="utf-8") as f:
+                resume_session_id = f.read().strip() or None
+                if resume_session_id:
+                    print(f"[Resuming session] session_id loaded from {session_id_file}")
+    except Exception as e:
+        print(f"[Warning] failed to read session id: {e}")
+
     options = ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
-            mcp_servers={"dataAnalysis": dataAnalysis},
-            allowed_tools=ALLOWED_TOOLS,
+        mcp_servers={"dataAnalysis": dataAnalysis},
+        allowed_tools=ALLOWED_TOOLS,
+        # resume the session if we loaded an id (omit resume if None)
+        **({"resume": resume_session_id} if resume_session_id else {}),
     )
-    session = ConversationSession(options)
+    session = ConversationSession(options, session_id_path=session_id_file)
     await session.start()
     
 if __name__ == "__main__":

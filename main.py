@@ -24,7 +24,8 @@ from agents.agent import ALLOWED_TOOLS, SYSTEM_PROMPT
 
 # Load environment variables from .env if present (non-fatal if missing)
 try:
-    load_dotenv()
+    success = load_dotenv()
+    print(f".env loaded successfully? {success}")
 except Exception:
     # Swallow errors: absence or parse issues in .env should not crash the program
     pass
@@ -34,6 +35,19 @@ Usage:
   Interactive mode: python main.py
   One-shot query:   python main.py "What's our total revenue?"
 """
+
+async def run_one_shot() -> None:
+    try:
+        from agents import one_shot_agent
+    except Exception as e:
+        print("Failed to import agent module:", e)
+        return
+    try:
+        await one_shot_agent.main()
+    except KeyboardInterrupt:
+        print("\nInterrupted. Exiting one-shot session.")
+    except Exception as e:
+        print("An unexpected error occurred in the one-shot session:", e)
 
 async def run_interactive() -> None:
     """
@@ -96,12 +110,7 @@ async def main() -> None:
 
     # One-shot mode placeholder (kept as-is per your current script)
     if len(sys.argv) > 1:
-        prompt = " ".join(sys.argv[1:]).strip()
-        if not prompt:
-            print(USAGE.strip())
-            return
-        print("One-shot mode not enabled in this script version.")
-        print("Prompt received:", prompt)
+        await run_one_shot()
         return
 
     # Interactive mode
@@ -117,6 +126,6 @@ if __name__ == "__main__":
     except Exception as e:
         # Final safety net: keep the traceback minimal and user-friendly.
         print("Fatal error:", e)
-        # Optionally exit with non-zero code to signal failure in CI/CD contexts.
+        # Optionally exit with non-zero code to signal failure in CI/CD contexts.   
         sys.exit(1)
 

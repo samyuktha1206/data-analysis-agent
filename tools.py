@@ -69,6 +69,7 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
 
     try:
         df = get_df()
+        print("DEBUG validate_data_tool: loading df from", DATA_PATH)
     except Exception as e:
         return {
             "content": [
@@ -97,6 +98,8 @@ async def validate_data_tool(args: Dict[str, Any]) -> ToolResult:
         }
     
     if len(df) == 0:
+        print("DEBUG validate_data_tool: df.columns=", df.columns.tolist(), "rows=", len(df))
+        print("DEBUG validate_data_tool: returning payload:", payload)
         return {
             "content": [
                 {"type": "text", "text": json.dumps({
