@@ -73,15 +73,29 @@ Create a .env file at the root:
 ANTHROPIC_API_KEY=your_claude_api_key\
 DATA_PATH=data/sample_data.csv
 
+## 🧰 Dependencies
+
+pandas>=1.5\
+python-dotenv>=1.0\
+jsonschema>=4.0\
+claude-agent-sdk>=0.1\
+typing-extensions>4.0
+
 **3️⃣ Run the agent**\
 **🗨️ Interactive Mode**\
 python main.py\
 Resume previous sessions automatically via stored session_id.
+<p align="center">
+  <img src="https://github.com/samyuktha1206/data-analysis-agent/blob/main/images/interactive_session_output.png" width="700" alt="Interactive Session Output">
+</p>
 
 ## ⚡ One-Shot Mode
 python main.py "What's the total revenue?"\
 Each run saves a JSON record under state/one-shot/:\
 state/one-shot/agent_state_20251101T093500Z.json
+<p align="center">
+  <img src="https://github.com/samyuktha1206/data-analysis-agent/blob/main/images/one-shot_session.png" width="700" alt="One-shot Session Output]">
+</p>
 
 
 ## 🧠 Example Queries
@@ -106,14 +120,6 @@ Total revenue for the dataset is 45,234.75.
   "reasoning": "Used calculate_total_tool on 'revenue' to sum all sales.",\
   "data_issues": []\
 }
-
-## 🧰 Dependencies
-
-pandas>=1.5\
-python-dotenv>=1.0\
-jsonschema>=4.0\
-claude-agent-sdk>=0.1\
-typing-extensions>4.0
 
 ## 🗂️ Persistent State
 
