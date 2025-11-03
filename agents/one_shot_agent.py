@@ -1,4 +1,14 @@
-# # agents/one_shot.py
+# agents/one_shot.py
+"""
+One-shot runner for the Data Analysis Agent.
+
+Behavior:
+- Reads a prompt from sys.argv, runs the agent in "one-shot" mode (limited turns),
+  streams responses, extracts tool outputs, and saves a timestamped + latest state
+  file under state/one-shot/.
+- Uses an in-process MCP server for local tools.
+- Uses structured logging (debug -> file; console shows warnings+).
+"""
 
 import tempfile
 import shutil
@@ -8,9 +18,11 @@ import os
 import sys
 import json
 import asyncio
+import logging
 from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, List, Optional
 
+# Claude SDK imports
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -21,7 +33,13 @@ from claude_agent_sdk import (
     TextBlock,
 )
 
-# import your tools (tools.py must export these callables)
+# SDK-specific error class (if available)
+try:
+    from claude_agent_sdk import ClaudeSDKError  # type: ignore
+except Exception:
+    ClaudeSDKError = Exception
+
+# import your tools
 from tools import (
     validate_data_tool,
     calculate_total_tool,
@@ -30,10 +48,34 @@ from tools import (
 )
 
 # ---------------------------
+# Logging configuration
+# ---------------------------
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+logfile = os.path.join(LOG_DIR, "one_shot.log")
+
+logger = logging.getLogger("agents.one_shot")
+logger.setLevel(logging.DEBUG)
+
+# File handler: debug -> file
+from logging.handlers import RotatingFileHandler
+fh = RotatingFileHandler(logfile, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+fh.setLevel(logging.DEBUG)
+fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+
+# Console handler: warnings and above
+ch = logging.StreamHandler()
+ch.setLevel(logging.WARNING)
+ch.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+if not logger.handlers:
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+
+# ---------------------------
 # Persistent state helpers
 # ---------------------------
-
-DEFAULT_STATE_PATH = DEFAULT_STATE_PATH = os.environ.get("AGENT_STATE_PATH", "state/one-shot/agent_state_latest.json")
+DEFAULT_STATE_PATH = os.environ.get("AGENT_STATE_PATH", "state/one-shot/agent_state_latest.json")
 
 @dataclass
 class AgentState:
@@ -52,24 +94,7 @@ class AgentState:
         d = asdict(self)
         d["data_issues"] = d.get("data_issues") or []
         return d
-def load_state(path: str = DEFAULT_STATE_PATH) -> Optional[AgentState]:
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        # allow older or partial payloads
-        return AgentState(
-            query=payload.get("query", ""),
-            intent=payload.get("intent"),
-            results=payload.get("results"),
-            insights=payload.get("insights"),
-            data_issues=payload.get("data_issues", []),
-            timestamp=payload.get("timestamp"),
-        )
-    except Exception:
-        return None
-    
+
 def save_state(state: AgentState, path: str = DEFAULT_STATE_PATH) -> None:
     """
     Atomically write `state` to `path`. If parent dir does not exist it will be created.
@@ -83,28 +108,33 @@ def save_state(state: AgentState, path: str = DEFAULT_STATE_PATH) -> None:
     p = pathlib.Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
 
-    # Write to a temp file in same dir then move (atomic on most OS)
-    fd, tmp_path = tempfile.mkstemp(dir=str(p.parent))
+    # Write to a temp file in same dir then move (atomic on most OSes)
+    fd = None
+    tmp_path = None
     try:
+        fd, tmp_path = tempfile.mkstemp(dir=str(p.parent))
         with os.fdopen(fd, "w", encoding="utf-8") as tf:
             json.dump(state.to_dict(), tf, indent=2, default=str)
+            tf.flush()
+            os.fsync(tf.fileno())
         shutil.move(tmp_path, str(p))
-    except Exception:
-        # If anything goes wrong, try best-effort simple write (fallback)
+        logger.debug("Saved state atomically to %s", path)
+    except (OSError, IOError) as e:
+        logger.warning("Atomic save_state failed: %s; falling back to simple write.", e, exc_info=True)
         try:
             with open(str(p), "w", encoding="utf-8") as f:
                 json.dump(state.to_dict(), f, indent=2, default=str)
+            logger.debug("Saved state with fallback write to %s", path)
         except Exception:
-            # swallow — we don't want a state save failure to crash the run
-            pass
+            logger.exception("Fallback save_state also failed; state not persisted")
     finally:
         # ensure no stray temp file
         try:
-            if os.path.exists(tmp_path):
+            if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
         except Exception:
-            pass
-        
+            logger.debug("Failed to remove tmp save file: %s", tmp_path, exc_info=True)
+
 # ---------------------------
 # Agent config / prompt
 # ---------------------------
@@ -207,13 +237,30 @@ Human summary: Total revenue for the dataset is 45,234.75.
 }
 """
 
+
+# ---------------------------
+# Helpers
+# ---------------------------
+def safe_parse_tool_text(txt: str) -> Optional[dict]:
+    """
+    Try to parse the given tool text as JSON. Return dict or None on failure.
+    Keep parse errors narrow so we don't swallow unexpected issues.
+    """
+    try:
+        return json.loads(txt)
+    except json.JSONDecodeError:
+        return None
+    except Exception:
+        logger.debug("Unexpected error while parsing tool text", exc_info=True)
+        return None
+
 # ---------------------------
 # One-shot runner
 # ---------------------------
 async def main() -> None:
     """
-    This main() is an async coroutine intended to be called from main.py's run_one_shot().
-    It reads sys.argv to get the prompt (so you can run python main.py "What's the total revenue?").
+    One-shot runner: read prompt from sys.argv, run the assistant for up to max_turns,
+    capture tool outputs and assistant text, save state to disk.
     """
     if len(sys.argv) < 2:
         print('Usage: python main.py "What\'s the total revenue?"')
@@ -238,92 +285,134 @@ async def main() -> None:
 
     client = ClaudeSDKClient(options=options)
 
+    # Connect to client
     try:
         await client.connect()
+    except ClaudeSDKError as e:
+        print("Failed to connect ClaudeSDKClient (SDK error):", e, flush=True)
+        logger.exception("Failed to connect ClaudeSDKClient (SDK error): %s", e)
+        return
+    except (OSError, IOError) as e:
+        print("Failed to connect ClaudeSDKClient (OS error):", e, flush=True)
+        logger.exception("Failed to connect ClaudeSDKClient (OS): %s", e)
+        return
     except Exception as e:
-        print("Failed to connect ClaudeSDKClient:", e)
+        logger.exception("Unexpected error during client.connect(): %s", e)
+        print("Failed to connect ClaudeSDKClient (unexpected error). See logs.", flush=True)
         return
 
     # Send the prompt (one-shot)
     try:
         await client.query(prompt)
+    except (ClaudeSDKError, OSError) as e:
+        print("Failed to send prompt:", e, flush=True)
+        logger.exception("Failed to send prompt: %s", e)
+        try:
+            await client.disconnect()
+        except Exception:
+            logger.debug("Failed to disconnect after query failure", exc_info=True)
+        return
     except Exception as e:
-        print("Failed to send prompt:", e)
-        await client.disconnect()
+        logger.exception("Unexpected error while sending prompt: %s", e)
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        print("Failed to send prompt (unexpected). See logs.", flush=True)
         return
 
-    # Stream responses and populate AgentState
     final_text_parts: List[str] = []
+
+    # Stream responses and populate AgentState
     try:
         async for message in client.receive_response():
-            # We only handle Assistant messages (tool use, tool results, text)
+            # only handle assistant messages
             if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    # Tool use block — the model decided to call a tool
+                for block in getattr(message, "content", []):
+                    # Tool use block — model requested a tool call
                     if isinstance(block, ToolUseBlock):
                         tool_name = getattr(block, "name", getattr(block, "id", "<unknown>"))
                         print(f"[Tool use] {tool_name}", flush=True)
                         if getattr(block, "input", None):
                             try:
                                 print("  input:", json.dumps(block.input, ensure_ascii=False), flush=True)
-                            except Exception:
+                            except (TypeError, ValueError):
                                 print("  input (raw):", repr(block.input)[:1000], flush=True)
+                            except Exception:
+                                logger.debug("Unexpected error printing tool input", exc_info=True)
 
                     # Tool result block — extract JSON/text from tool
                     elif isinstance(block, ToolResultBlock):
                         content = getattr(block, "content", None)
-                        print("[Tool result] raw:", repr(content)[:1000], flush=True)
+                        # print a short preview for CLI feedback
+                        try:
+                            preview = (json.dumps(content, ensure_ascii=False)[:1000]
+                                       if isinstance(content, (dict, list)) else str(content)[:1000])
+                            print("[Tool result] preview:", preview, flush=True)
+                        except Exception:
+                            print("[Tool result] (unprintable content)", flush=True)
+                            logger.debug("Unable to preview tool result content", exc_info=True)
 
-                        # Some tools return content as list of blocks; try find text blocks
+                        # If content is a list of blocks, try to extract a text block
+                        parsed_result = None
                         if isinstance(content, list):
                             for part in content:
                                 if isinstance(part, dict) and part.get("type") == "text":
                                     txt = (part.get("text") or "").strip()
-                                    # try JSON parse (tools should return JSON text for structured payloads)
-                                    try:
-                                        parsed = json.loads(txt)
-                                        # If validate tool returned errors, append to data_issues
-                                        if parsed.get("ok") is False or parsed.get("status") in ("insufficient", "error"):
-                                            state.data_issues.append(parsed)
-                                        else:
-                                            # heuristics: if tool returned a result/total store it
-                                            if "result" in parsed:
-                                                state.results = parsed["result"]
-                                            elif "total" in parsed:
-                                                state.results = {"column": parsed.get("column"), "total": parsed.get("total")}
-                                            else:
-                                                # keep raw parsed
-                                                state.results = parsed
-                                    except Exception:
-                                        # not JSON — store raw text
-                                        state.results = {"raw_text": txt}
+                                    parsed_result = safe_parse_tool_text(txt) or {"raw_text": txt}
+                                    break
+                        elif isinstance(content, str):
+                            parsed_result = safe_parse_tool_text(content) or {"raw_text": content}
+                        elif isinstance(content, dict):
+                            parsed_result = content
                         else:
-                            # fallback
-                            state.results = {"tool_content_repr": repr(content)}
+                            parsed_result = {"repr": repr(content)}
 
-                    # Plain assistant text block (reasoning, recommendation)
+                        # Inspect parsed_result shape and update state accordingly
+                        try:
+                            if isinstance(parsed_result, dict):
+                                # validate tool shape
+                                if parsed_result.get("ok") is False or parsed_result.get("status") in ("insufficient", "error"):
+                                    state.data_issues.append(parsed_result)
+                                else:
+                                    if "result" in parsed_result:
+                                        state.results = parsed_result["result"]
+                                    elif "total" in parsed_result:
+                                        state.results = {"column": parsed_result.get("column"), "total": parsed_result.get("total")}
+                                    else:
+                                        state.results = parsed_result
+                            else:
+                                # store fallback
+                                state.results = {"tool_result": parsed_result}
+                        except Exception:
+                            logger.debug("Error processing parsed tool result", exc_info=True)
+
+                    # Plain assistant text block
                     elif isinstance(block, TextBlock):
                         txt = getattr(block, "text", "").strip()
                         if txt:
                             print("Claude:", txt, flush=True)
                             final_text_parts.append(txt)
 
+    except ClaudeSDKError as e:
+        logger.exception("SDK error while receiving responses: %s", e)
+        print("Error while reading responses (SDK). See logs.", flush=True)
     except Exception as e:
-        print("Error while reading responses:", e)
+        logger.exception("Unexpected error while receiving responses: %s", e)
+        print("Error while reading responses (unexpected). See logs.", flush=True)
     finally:
         try:
             await client.disconnect()
         except Exception:
-            pass
+            logger.debug("Error while disconnecting client", exc_info=True)
 
-        # Save assembled insight/reasoning into state.insights
+    # Save assembled insight/reasoning into state.insights
     if final_text_parts:
         state.insights = "\n".join(final_text_parts)
 
     # --- derive a best-effort intent for quick reference ---
     try:
         if isinstance(state.results, dict):
-            # many of your tools put an "intent" or "result" key; detect common shapes
             if "intent" in state.results:
                 state.intent = state.results.get("intent")
             elif "total" in state.results:
@@ -335,37 +424,38 @@ async def main() -> None:
             else:
                 state.intent = state.intent or "unknown"
     except Exception:
-        # don't fail the run for minor parsing errors
+        logger.debug("Error deriving best-effort intent", exc_info=True)
         state.intent = state.intent or "unknown"
 
-    # --- ensure state/one-shot dir exists and build filename ---
+    # --- ensure state dir exists and build filename ---
     try:
-        import datetime, pathlib
         ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-
         outdir = pathlib.Path("state/one-shot")
         outdir.mkdir(parents=True, exist_ok=True)
         filename = outdir / f"agent_state_{ts}.json"
 
-        # save timestamped file (atomic)
         save_state(state, path=str(filename))
-        print(f"[Saved state] to {filename}", flush=True)
+        # print(f"[Saved state] to {filename}", flush=True)
 
-        # also save a 'latest' copy for convenience (atomic)
         latest_path = outdir / "agent_state_latest.json"
         save_state(state, path=str(latest_path))
         print(f"[Saved state] to {latest_path}", flush=True)
 
     except Exception as e:
-        # fallback: save to DEFAULT_STATE_PATH if timestamped save fails
+        logger.exception("Failed to save final agent state: %s", e)
+        # fallback
         try:
             save_state(state)
             print(f"[Saved state] to {DEFAULT_STATE_PATH} (fallback)", flush=True)
         except Exception as e2:
-            print(f"[Warning] Failed to save agent state: {e} / {e2}", flush=True)
+            logger.exception("Fallback final save_state failed: %s / %s", e, e2)
+            print("[Warning] Failed to save agent state.", flush=True)
 
-
-# Allow running agents/one_shot.py directly for testing:
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.", flush=True)
+    except Exception:
+        logger.exception("Fatal error in one-shot runner")
+        print("Fatal error; see logs.", flush=True)

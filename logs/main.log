@@ -1,0 +1,55 @@
+2025-11-03 08:42:50,669 DEBUG    agents.main .env loaded (if present).
+2025-11-03 08:42:50,670 DEBUG    agents.main main() start
+2025-11-03 08:42:50,670 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 08:42:50,670 INFO     agents.main Starting interactive mode
+2025-11-03 08:43:55,949 DEBUG    agents.main interactive finished
+2025-11-03 08:44:06,090 DEBUG    agents.main .env loaded (if present).
+2025-11-03 08:44:06,091 DEBUG    agents.main main() start
+2025-11-03 08:44:06,092 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 08:44:06,092 INFO     agents.main Starting one-shot mode with args: ['Whats', 'the', 'total', 'revenue?']
+2025-11-03 08:44:22,848 DEBUG    agents.main one-shot finished
+2025-11-03 08:53:58,027 DEBUG    agents.main .env loaded (if present).
+2025-11-03 08:53:58,028 DEBUG    agents.main main() start
+2025-11-03 08:53:58,028 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 08:53:58,029 INFO     agents.main Starting interactive mode
+2025-11-03 08:59:25,758 DEBUG    agents.main interactive finished
+2025-11-03 08:59:30,762 DEBUG    agents.main .env loaded (if present).
+2025-11-03 08:59:30,763 DEBUG    agents.main main() start
+2025-11-03 08:59:30,764 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 08:59:30,764 INFO     agents.main Starting interactive mode
+2025-11-03 09:01:53,392 DEBUG    agents.main interactive finished
+2025-11-03 09:02:02,677 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:02:02,678 DEBUG    agents.main main() start
+2025-11-03 09:02:02,678 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:02:02,678 INFO     agents.main Starting one-shot mode with args: ['WHats', 'the', 'total', 'revenue?']
+2025-11-03 09:02:20,648 DEBUG    agents.main one-shot finished
+2025-11-03 09:04:17,348 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:04:17,349 DEBUG    agents.main main() start
+2025-11-03 09:04:17,350 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:04:17,350 INFO     agents.main Starting interactive mode
+2025-11-03 09:14:16,331 DEBUG    agents.main interactive finished
+2025-11-03 09:14:24,746 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:14:24,748 DEBUG    agents.main main() start
+2025-11-03 09:14:24,748 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:14:24,748 INFO     agents.main Starting interactive mode
+2025-11-03 09:16:49,538 DEBUG    agents.main interactive finished
+2025-11-03 09:17:02,198 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:17:02,199 DEBUG    agents.main main() start
+2025-11-03 09:17:02,199 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:17:02,200 INFO     agents.main Starting one-shot mode with args: ["What's", 'the', 'total', 'revenue?']
+2025-11-03 09:17:21,001 DEBUG    agents.main one-shot finished
+2025-11-03 09:23:49,832 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:23:49,833 DEBUG    agents.main main() start
+2025-11-03 09:23:49,833 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:23:49,833 INFO     agents.main Starting interactive mode
+2025-11-03 09:30:03,685 DEBUG    agents.main interactive finished
+2025-11-03 09:30:20,060 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:30:20,061 DEBUG    agents.main main() start
+2025-11-03 09:30:20,061 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:30:20,061 INFO     agents.main Starting one-shot mode with args: ["What's", 'the', 'total', 'revenue?']
+2025-11-03 09:30:44,250 DEBUG    agents.main one-shot finished
+2025-11-03 09:31:52,064 DEBUG    agents.main .env loaded (if present).
+2025-11-03 09:31:52,065 DEBUG    agents.main main() start
+2025-11-03 09:31:52,065 INFO     agents.main DATA_PATH: data/sample_data.csv
+2025-11-03 09:31:52,066 INFO     agents.main Starting interactive mode
+2025-11-03 09:36:00,465 DEBUG    agents.main interactive finished
